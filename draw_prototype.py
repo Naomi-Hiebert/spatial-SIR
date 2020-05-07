@@ -6,6 +6,7 @@ Created on Tue May  5 13:22:16 2020
 """
 
 import sys
+import threading, time
 
 from PyQt5.QtWidgets import QApplication, QWidget, QPushButton
 from PyQt5.QtGui import QPainter, QPen, QColor
@@ -77,7 +78,23 @@ class SIRViewer(QWidget):
             self.model_update()
             self.update()
 
+    def end(self):
+        sys.exit()
 
+    def run_sim(self, stop):
+        while not stop.isSet():
+            time.sleep(0.5)
+            self.force_update()
+
+    def thread_start(self):
+        self.stop = threading.Event()
+        self.c_thread = threading.Thread(target=self.run_sim, args=(self.stop,))
+        self.c_thread.start() 
+
+    def thread_cancel(self):
+        self.stop.set()
+        self.close()
+        sys.exit() 
 
 
 if __name__ == '__main__':
@@ -87,13 +104,18 @@ if __name__ == '__main__':
     window.setGeometry(50, 50, 800, 700)
     viewer = SIRViewer(parent = window)
     viewer.setGeometry(0, 0, 800, 600)
-    button = QPushButton('Update', parent = window)
-    button.move(400, 600)
+
+    begin_button = QPushButton('Begin', parent = window)
+    begin_button.move(200, 600)
+
+    stop_button = QPushButton('Stop', parent = window)
+    stop_button.move(500, 600)
     
     model = SIRModel()
     viewer.attach_model(model)
     
-    button.clicked.connect(viewer.force_update)
-    
+    begin_button.clicked.connect(viewer.thread_start)
+    stop_button.clicked.connect(viewer.thread_cancel)
+
     window.show()
     sys.exit(app.exec())
