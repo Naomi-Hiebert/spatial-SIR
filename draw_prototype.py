@@ -8,15 +8,28 @@ Created on Tue May  5 13:22:16 2020
 import sys
 import threading, time
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication, QWidget, QPushButton
 from PyQt5.QtGui import QPainter, QPen, QColor
-from PyQt5.QtCore import QPoint
+from PyQt5.QtCore import QPoint, QLine
 
 from sir_model import SIRModel
 
 
 class SIRViewer(QWidget):
+    """The frontend viewer for the simulation
 
+       Attributes
+        ----------
+        points_s : list of QPoints
+            The list of susceptible node coordinates in QPoints
+        points_i : list of QPoints
+            The list of infected node coordinates in QPoints
+        points_r : list of QPoints
+            The list of recovered node coordinates in QPoints
+        points_walls : list of QPoints
+            The list of tuples of wall end coordinates in QPoints
+    """
     
     def __init__(self, parent):
         super().__init__(parent)
@@ -26,7 +39,8 @@ class SIRViewer(QWidget):
         self.points_walls = []
         
     def model_update(self):
-        
+        """Updates the QPoint lists with new values of locations of Nodes
+        """
         self.points_s = []
         self.points_i = []
         self.points_r = []
@@ -42,6 +56,20 @@ class SIRViewer(QWidget):
             self.points_walls.append((self.make_point(p[0], p[1]), self.make_point(p[2], p[3])))
             
     def make_point(self, x, y):
+        """Creates a QPoint from x,y coordinates
+
+        Parameters
+        ----------
+        x : integer
+            The X coordinate
+        y : integer
+            The Y coordinate
+
+        Returns
+        -------
+        QPoint
+            The QPoint of the coordinates
+        """
         new_x = ((x / self.model.get_model_size()[0]) \
                 * (super().size().width()-20))
         new_y = ((y / self.model.get_model_size()[1]) \
@@ -51,13 +79,28 @@ class SIRViewer(QWidget):
         return QPoint(new_x, new_y)
     
     def attach_model(self, m):
+        """Links the Viewer to the Model and begins the update
+
+        Parameters
+        ----------
+        m : SIRModel
+            The SIRModel to be linked to
+        """
         self.model = m
         self.model_update()
         
     def paintEvent(self, paintEvent):
-        
+        """Draws all of the Nodes in their respective colours on the Map
+
+        Parameters
+        ----------
+        paintEvent : [type]
+            [description]
+        """
         p = QPainter(self)
         pen = QPen()
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setJoinStyle(Qt.RoundJoin)
         pen.setWidth(5)
         
         pen.setColor(QColor(182, 182, 0))
@@ -83,6 +126,8 @@ class SIRViewer(QWidget):
         
         
     def force_update(self):
+        """Steps and updates the model and viewer
+        """
         if self.model:
             self.model.model_step()
             self.model_update()
@@ -92,16 +137,28 @@ class SIRViewer(QWidget):
         sys.exit()
 
     def run_sim(self, stop):
+        print(type(stop))
+        """Runs the simulation while the stop event is not set
+
+        Parameters
+        ----------
+        stop : threading.Event
+            The Event that stops the thread
+        """
         while not stop.isSet():
-            time.sleep(0.5)
+            time.sleep(0.001)
             self.force_update()
 
     def thread_start(self):
+        """Starts the thread for simulation
+        """
         self.stop = threading.Event()
         self.c_thread = threading.Thread(target=self.run_sim, args=(self.stop,))
         self.c_thread.start() 
 
     def thread_cancel(self):
+        """Kills the thread and ends the program
+        """
         self.stop.set()
         self.close()
         sys.exit() 
