@@ -13,71 +13,52 @@ from PyQt5.QtWidgets import QApplication, QWidget, QPushButton
 from PyQt5.QtGui import QPainter, QPen, QColor
 from PyQt5.QtCore import QPoint, QLine
 
+from mpl_widget import MplWidget
 from sir_model import SIRModel
 
 
-class SIRViewer(QWidget):
+class SIRViewer(MplWidget):
     """The frontend viewer for the simulation
-
-       Attributes
-        ----------
-        points_s : list of QPoints
-            The list of susceptible node coordinates in QPoints
-        points_i : list of QPoints
-            The list of infected node coordinates in QPoints
-        points_r : list of QPoints
-            The list of recovered node coordinates in QPoints
-        points_walls : list of QPoints
-            The list of tuples of wall end coordinates in QPoints
-    """
-    
+    """   
     def __init__(self, parent):
         super().__init__(parent)
-        self.points_s = [QPoint(10, 10), QPoint(10, 20)]
-        self.points_i = [QPoint(20, 10), QPoint(20, 20)]
-        self.points_r = [QPoint(30, 10), QPoint(30, 20)]
-        self.points_walls = []
+        self._plot_ref = None
+
+        self.n_iter = 0
+        self.model_time = 0
+        self.plot_time = 0
+        self.gui_time = 0
+        self.start_time = time.perf_counter()
         
     def model_update(self):
         """Updates the QPoint lists with new values of locations of Nodes
         """
-        self.points_s = []
-        self.points_i = []
-        self.points_r = []
-        self.points_walls = []
-        
-        for p in self.model.list_susceptible():
-            self.points_s.append(self.make_point(p[0], p[1]))
-        for p in self.model.list_infected():
-            self.points_i.append(self.make_point(p[0], p[1]))
-        for p in self.model.list_recovered():
-            self.points_r.append(self.make_point(p[0], p[1]))
-        for p in self.model.sir_map.wall_locs:
-            self.points_walls.append((self.make_point(p[0], p[1]), self.make_point(p[2], p[3])))
-            
-    def make_point(self, x, y):
-        """Creates a QPoint from x,y coordinates
+        if self._plot_ref is None:
+            ref_s = self.plot(
+                *self.prepare(self.model.list_susceptible()), 
+                fmt='o', ms=2, c=[0.7, 0.7, 0])
+            ref_i = self.plot(
+                *self.prepare(self.model.list_infected()), 
+                fmt='o', ms=2, c=[1, 0, 0])
+            ref_r = self.plot(
+                *self.prepare(self.model.list_recovered()), 
+                fmt='o', ms=2, c=[0, 1, 0])
+            self._plot_ref = [ref_s[0], ref_i[0], ref_r[0]]
+        else:
+            for idx, method in enumerate([
+                self.model.list_susceptible,
+                self.model.list_infected,
+                self.model.list_recovered]):
+                self._plot_ref[idx].set_data(*self.prepare(method()))
 
-        Parameters
-        ----------
-        x : integer
-            The X coordinate
-        y : integer
-            The Y coordinate
+        self.canvas.draw()
+        self.canvas.flush_events()
 
-        Returns
-        -------
-        QPoint
-            The QPoint of the coordinates
-        """
-        new_x = ((x / self.model.get_model_size()[0]) \
-                * (super().size().width()-20))
-        new_y = ((y / self.model.get_model_size()[1]) \
-                * (super().size().height()-20))
-        new_x = int(new_x + 10)
-        new_y = int(new_y + 10)
-        return QPoint(new_x, new_y)
-    
+    def prepare(self, data):
+        if data.shape == (0,):
+            return data.reshape(2, -1)
+        return data.T[::-1]
+
     def attach_model(self, m):
         """Links the Viewer to the Model and begins the update
 
@@ -87,51 +68,23 @@ class SIRViewer(QWidget):
             The SIRModel to be linked to
         """
         self.model = m
+        self.canvas.ax.imshow(m.sir_map.layout, cmap='Greys_r')
         self.model_update()
-        
-    def paintEvent(self, paintEvent):
-        """Draws all of the Nodes in their respective colours on the Map
-
-        Parameters
-        ----------
-        paintEvent : [type]
-            [description]
-        """
-        p = QPainter(self)
-        pen = QPen()
-        pen.setCapStyle(Qt.RoundCap)
-        pen.setJoinStyle(Qt.RoundJoin)
-        pen.setWidth(5)
-        
-        pen.setColor(QColor(182, 182, 0))
-        p.setPen(pen)
-        if self.points_s:
-            p.drawPoints(*self.points_s)
-        
-        pen.setColor(QColor(255, 0, 0))
-        p.setPen(pen)
-        if self.points_i:
-            p.drawPoints(*self.points_i)
-        
-        pen.setColor(QColor(0, 255, 0))
-        p.setPen(pen)
-        if self.points_r:
-            p.drawPoints(*self.points_r)
-
-        pen.setColor(QColor(0, 0, 0))
-        p.setPen(pen)
-        if self.points_walls:
-            for pt in self.points_walls:
-                p.drawLine(*pt)
-        
         
     def force_update(self):
         """Steps and updates the model and viewer
         """
         if self.model:
+            self.n_iter += 1
+            start = time.perf_counter()
             self.model.model_step()
+            self.model_time += time.perf_counter() - start
+            start = time.perf_counter()
             self.model_update()
+            self.plot_time += time.perf_counter() - start
+            start = time.perf_counter()
             self.update()
+            self.gui_time += time.perf_counter() - start
 
     def end(self):
         sys.exit()
@@ -146,7 +99,7 @@ class SIRViewer(QWidget):
             The Event that stops the thread
         """
         while not stop.isSet():
-            time.sleep(0.001)
+            time.sleep(0.01)
             self.force_update()
 
     def thread_start(self):
@@ -159,6 +112,22 @@ class SIRViewer(QWidget):
     def thread_cancel(self):
         """Kills the thread and ends the program
         """
+        print('='*50)
+        print('Performance Statistics')
+        print('='*50)
+        print(f'Total iterations: {self.n_iter}')
+        print(f'Total run time: {time.perf_counter()-self.start_time}')
+        print(f'Total model step time: {self.model_time}')
+        print(f'Total plotting time: {self.plot_time}')
+        print(f'Total gui update time: {self.gui_time}')
+
+        print('='*50)
+        print(f'Avg iter time: {(time.perf_counter()-self.start_time)/self.n_iter}')
+        print(f'Avg model step time: {self.model_time/self.n_iter}')
+        print(f'Avg plotting time: {self.plot_time/self.n_iter}')
+        print(f'Avg gui update time: {self.gui_time/self.n_iter}')
+        print('='*50)
+
         self.stop.set()
         self.close()
         sys.exit() 
@@ -178,7 +147,7 @@ if __name__ == '__main__':
     stop_button = QPushButton('Stop', parent = window)
     stop_button.move(500, 600)
     
-    model = SIRModel()
+    model = SIRModel(population=1000, mapfile='mapfiles/test_large.png')
     viewer.attach_model(model)
     
     begin_button.clicked.connect(viewer.thread_start)

@@ -9,6 +9,7 @@ import random
 from enum import Enum
 
 import numpy as np
+from matplotlib import image
 
 
 class SIRStatus(Enum):
@@ -18,6 +19,7 @@ class SIRStatus(Enum):
     INFECTED = 2
     RECOVERED = 3
 
+
 # # This is not used currently
 class MapType(Enum):
     """ An enum that represents an area type on the SIRMap
@@ -25,6 +27,7 @@ class MapType(Enum):
     OPEN = 1
     WALL = 2
     RESTRICTED = 3 
+
 
 class Location:
     """A location on the map with coordinates
@@ -177,32 +180,39 @@ class SIRMap:
             A matrix specifying whether a position is filled
         miasma : ndarray
             A matrix specifying whether a position is infectious
-        wall_locs : list of tuples
-            The locations of the walls
     """
-    def __init__(self, width=50, height=50):
-        self.width = width
-        self.height = height
-        self.layout = np.ones((width, height), np.uint8)
-        self.miasma = np.zeros((width, height), np.uint8)
-        self.wall_locs = []
+    def __init__(self, width=50, height=50, mapfile=None):
+        if mapfile is not None:
+            self.layout = self.load_map(mapfile)
+            self.width, self.height = self.layout.shape
+        else:
+            self.width = width
+            self.height = height
+            self.layout = np.ones((width, height), np.uint8)
+        
+        self.miasma = np.zeros((self.width, self.height), np.uint8)
+        
         
     # def build_box(self, loc1, loc2):
     #     #For testing purposes - forbid box from Location 1 to Location 2
     #     for i in range(loc1.x, loc2.x):
     #         for j in range(loc1.y, loc2.y):
     #             self.layout[i,j] = np.uint8(0)
+
+    def load_map(self, mapfile):
+        img = image.imread(mapfile)
+        mono = img.mean(axis=2) == 1
+        
+        return mono.astype(np.uint8)
     
     def h_wall(self, loc, x):
         #For testing purposes 
-        self.wall_locs.append((loc.x, loc.y, x, loc.y))
         for i in range(loc.x, x):
-                self.layout[i, loc.y] = np.uint8(0)
+            self.layout[i, loc.y] = np.uint8(0)
                 
 
     def v_wall(self, loc, y):
         #For testing purposes 
-        self.wall_locs.append((loc.x, loc.y, loc.x, y))
         for i in range(loc.y, y):
                 self.layout[loc.x, i] = np.uint8(0)
             
@@ -266,27 +276,31 @@ class SIRModel:
     def __init__(
             self, width=50, height=50, 
             population=400, carriers=8,
-            attack_rate=0.8, recovery_rate=0.02):
+            attack_rate=0.8, recovery_rate=0.02,
+            mapfile=None):
         
-        self.width = width
-        self.height = height
+        if mapfile is not None:
+            self.sir_map = SIRMap(mapfile=mapfile)
+            self.width, self.height = self.sir_map.layout.shape
+        else:
+            self.width = width
+            self.height = height
+            self.sir_map = SIRMap(width, height)
+
+            # Creates the walls
+            # lower right box
+            self.sir_map.h_wall(Location(0, 20), 10)
+            self.sir_map.h_wall(Location(15, 20), 20)
+            self.sir_map.v_wall(Location(20, 0), 20)
+
+            # lower right box
+            self.sir_map.h_wall(Location(30, 30), 35)
+            self.sir_map.h_wall(Location(40, 30), 50)
+            self.sir_map.v_wall(Location(30, 30), 50)
+
         self.attack_rate = attack_rate
         self.recovery_rate = recovery_rate
         self.population = []
-        self.sir_map = SIRMap(width, height)
-
-        # Creates the walls
-        # lower right box
-        self.sir_map.h_wall(Location(0, 20), 10)
-        self.sir_map.h_wall(Location(15, 20), 20)
-        self.sir_map.v_wall(Location(20, 0), 20)
-
-        # lower right box
-        self.sir_map.h_wall(Location(30, 30), 35)
-        self.sir_map.h_wall(Location(40, 30), 50)
-        self.sir_map.v_wall(Location(30, 30), 50)
-
-
 
         for i in range(population):
             self.population.append(SIRNode(0, 0, self.sir_map))
@@ -334,7 +348,7 @@ class SIRModel:
         for p in self.population:
             if p.status is SIRStatus.SUSCEPTIBLE:
                 ret.append((p.x, p.y))
-        return ret
+        return np.array(ret)
     
     def list_infected(self):
         """Creates a list of all coordinates of infected Nodes
@@ -348,7 +362,7 @@ class SIRModel:
         for p in self.population:
             if p.status is SIRStatus.INFECTED:
                 ret.append((p.x, p.y))
-        return ret
+        return np.array(ret)
     
     def list_recovered(self):
         """Creates a list of all coordinates of recovered Nodes
@@ -362,6 +376,6 @@ class SIRModel:
         for p in self.population:
             if p.status is SIRStatus.RECOVERED:
                 ret.append((p.x, p.y))
-        return ret
+        return np.array(ret)
     
     
