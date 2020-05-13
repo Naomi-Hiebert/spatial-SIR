@@ -9,7 +9,10 @@ import random
 from enum import Enum
 
 import numpy as np
+import networkx as nx
 from matplotlib import image
+
+from pathing import Terrain, create_graph, random_idx, dist
 
 
 class SIRStatus(Enum):
@@ -18,6 +21,7 @@ class SIRStatus(Enum):
     SUSCEPTIBLE = 1
     INFECTED = 2
     RECOVERED = 3
+    QUARANTINED = 4
 
 
 # # This is not used currently
@@ -38,13 +42,13 @@ class Location:
             The X coordinate.
         y : float
             The Y coordinate.
-        type : MapType
+        type_ : MapType
             The area type
     """
-    def __init__(self, x, y, type = MapType.OPEN):
+    def __init__(self, x, y, type_ = MapType.OPEN):
         self.x = x
         self.y = y
-        self.type = type
+        self.type = type_
 
         
 class SIRNode:
@@ -65,6 +69,9 @@ class SIRNode:
         self.status = SIRStatus.SUSCEPTIBLE
         if sir_map is not None:
             self.sir_map = sir_map
+
+        self.urgency = 1
+        self.path = []
         
     def convalesce(self, recovery_rate):
         """Simulates the possibility of a Node recovering from infection
@@ -74,15 +81,19 @@ class SIRNode:
         recovery_rate : float
             The chance that an individual will recover (e.g. 0.02)
         """
-        if self.status is SIRStatus.INFECTED:
+        if self.is_contagious() or self.is_quarantined():
             if random.random() < recovery_rate:
                 self.status = SIRStatus.RECOVERED
+                self.pathfind(random_idx(self.sir_map.open))
                 
     def infect(self):
         self.status = SIRStatus.INFECTED
         
     def is_contagious(self):
         return (self.status is SIRStatus.INFECTED)
+            
+    def is_quarantined(self):
+        return (self.status is SIRStatus.QUARANTINED)
     
     def is_susceptible(self):
         return (self.status is SIRStatus.SUSCEPTIBLE)
@@ -133,7 +144,7 @@ class SIRNode:
         if self.sir_map is not None and self.is_contagious():
             self.sir_map.contaminate(self.x, self.y)
             
-    def random_place(self, x_max, y_max):
+    def random_place(self):
         """Creates a random coordinate to place the Node at
 
         Parameters
@@ -143,16 +154,28 @@ class SIRNode:
         y_max : integer
             The maximum Y position
         """
-        while(True):
-            x = random.randint(0, x_max-1)
-            y = random.randint(0, y_max-1)
-            if self.can_enter(x, y):
-                self.x = x
-                self.y = y
-                return
+        self.x, self.y = random_idx(self.sir_map.start)
+
+    def move(self):
+        """Movement decision making for the Node
+        """
+        if self.is_quarantined():
+            if len(self.path) > 0:
+                self.x, self.y = self.path.pop(0)
+
+        elif random.random() <= self.urgency:
+            if self.is_contagious() and random.random() < 0.05:
+                self.pathfind(random_idx(self.sir_map.quarantine))
+                self.status = SIRStatus.QUARANTINED
+            elif len(self.path) > 0:
+                self.x, self.y = self.path.pop(0)
+            else:
+                self.new_task()
+        else:
+            pass
                 
     def random_move(self):
-        """Simulates the movement of the Node
+        """Simulates random movement of the Node
         """
         # TODO create fluid motion for SIRNodes
         rand = random.random()
@@ -166,6 +189,34 @@ class SIRNode:
             self.y -= 1
         else:
             pass
+    
+    def new_task(self):
+        """Defines a new task / path for the Node
+        """
+        rand = random.random()
+        if rand < 0.1:
+            self.pathfind(random_idx(self.sir_map.target))
+        elif rand < 0.2:
+            self.pathfind(random_idx(self.sir_map.start))
+        elif rand < 0.5:
+            self.pathfind(random_idx(self.sir_map.valid))
+        else:
+            self.random_move()
+
+    def pathfind(self, target):
+        """
+        Computes the shortest path between two points subject 
+        to optimization constraints in the a-star search algorithm
+
+        Parameters
+        ----------
+        target : (int, int)
+            `(x,y)` coordinate tuple to path to from the current Node position
+        """        
+        start = (self.x, self.y)
+        self.path = nx.astar_path(
+            self.sir_map.graph, start, target, heuristic=dist, weight='cost')
+
 
 class SIRMap:
     """The map of the area being monitored
@@ -181,40 +232,41 @@ class SIRMap:
         miasma : ndarray
             A matrix specifying whether a position is infectious
     """
-    def __init__(self, width=50, height=50, mapfile=None):
-        if mapfile is not None:
-            self.layout = self.load_map(mapfile)
-            self.width, self.height = self.layout.shape
-        else:
-            self.width = width
-            self.height = height
-            self.layout = np.ones((width, height), np.uint8)
-        
-        self.miasma = np.zeros((self.width, self.height), np.uint8)
-        
-        
-    # def build_box(self, loc1, loc2):
-    #     #For testing purposes - forbid box from Location 1 to Location 2
-    #     for i in range(loc1.x, loc2.x):
-    #         for j in range(loc1.y, loc2.y):
-    #             self.layout[i,j] = np.uint8(0)
+    def __init__(self, mapfile):
+        self.load_map(mapfile)
+        self.miasma = np.zeros(self.shape, np.uint8)
 
     def load_map(self, mapfile):
-        img = image.imread(mapfile)
-        mono = img.mean(axis=2) == 1
-        
-        return mono.astype(np.uint8)
-    
-    def h_wall(self, loc, x):
-        #For testing purposes 
-        for i in range(loc.x, x):
-            self.layout[i, loc.y] = np.uint8(0)
-                
+        """
+        Load in mapfile and compute terrain masks.
 
-    def v_wall(self, loc, y):
-        #For testing purposes 
-        for i in range(loc.y, y):
-                self.layout[loc.x, i] = np.uint8(0)
+        Parameters
+        ----------
+        mapfile : str
+            File path to map image (uncompressed).
+        """
+        # read image
+        self.img = image.imread(mapfile)
+        self.shape = self.img.shape[:2]
+
+        # remove alpha from RGBA
+        if self.img.shape[-1] == 4:
+            self.img = self.img[:,:,:3]
+
+        # compute terrain masks
+        self.open = self._is_pixel_type(Terrain.OPEN)
+        self.walls = self._is_pixel_type(Terrain.WALL)
+        self.start = self._is_pixel_type(Terrain.START)
+        self.target = self._is_pixel_type(Terrain.TARGET)
+        self.quarantine = self._is_pixel_type(Terrain.QUARANTINE)
+        self.valid = ~(self.quarantine | self.walls)
+
+        # compute network graph
+        self.graph = create_graph(self.walls)
+    
+    def _is_pixel_type(self, rgb):
+        pixel_mask = np.all(self.img == rgb, axis=2)
+        return pixel_mask
             
     def can_enter(self, x, y, role=0b00000001):
         """Determines whether a position is valid within the map
@@ -233,12 +285,12 @@ class SIRMap:
         boolean
             Whether the position is valid
         """
-        if x >= self.width or y >= self.height:
+        if any(np.array((x,y)) >= self.shape):
             return False
-        elif x < 0 or y < 0:
+        elif any(np.array((x,y)) < 0):
             return False
         else:
-            return (self.layout[x,y] & np.uint8(role))
+            return (self.valid[x,y] & np.uint8(role))
         
     def virus_level(self, x, y):
         return self.miasma[x,y]
@@ -249,11 +301,10 @@ class SIRMap:
     def ventilate(self):
         """Simulates the ventilation of the map?
         """
-        for i in range(self.width):
-            for j in range(self.height):
+        for i in range(self.shape[0]):
+            for j in range(self.shape[1]):
                 self.miasma[i,j] >>= 2
     
-
 
 class SIRModel:
     """The map of the area being monitored
@@ -274,29 +325,11 @@ class SIRModel:
             The SIRMap connected
     """
     def __init__(
-            self, width=50, height=50, 
-            population=400, carriers=8,
-            attack_rate=0.8, recovery_rate=0.02,
-            mapfile=None):
-        
-        if mapfile is not None:
-            self.sir_map = SIRMap(mapfile=mapfile)
-            self.width, self.height = self.sir_map.layout.shape
-        else:
-            self.width = width
-            self.height = height
-            self.sir_map = SIRMap(width, height)
-
-            # Creates the walls
-            # lower right box
-            self.sir_map.h_wall(Location(0, 20), 10)
-            self.sir_map.h_wall(Location(15, 20), 20)
-            self.sir_map.v_wall(Location(20, 0), 20)
-
-            # lower right box
-            self.sir_map.h_wall(Location(30, 30), 35)
-            self.sir_map.h_wall(Location(40, 30), 50)
-            self.sir_map.v_wall(Location(30, 30), 50)
+        self, mapfile, 
+        population=400, carriers=8,
+        attack_rate=0.8, recovery_rate=0.02):
+    
+        self.sir_map = SIRMap(mapfile)
 
         self.attack_rate = attack_rate
         self.recovery_rate = recovery_rate
@@ -306,7 +339,9 @@ class SIRModel:
             self.population.append(SIRNode(0, 0, self.sir_map))
             
         for p in self.population:
-            p.random_place(self.width, self.height)
+            p.random_place()
+            p.pathfind(random_idx(self.sir_map.target))
+            p.urgency = np.random.uniform(0.4, 0.95)
             
         #Node locations were random, so this doesn't have to be.
         for i in range(carriers):
@@ -321,7 +356,7 @@ class SIRModel:
             p.convalesce(self.recovery_rate)
             
         for p in self.population:
-            p.random_move()
+            p.move()
             p.droplet_expose()
             
         self.sir_map.ventilate()
@@ -334,7 +369,7 @@ class SIRModel:
                     '''
 
     def get_model_size(self):
-        return (self.width, self.height)
+        return self.sir_map.shape
 
     def list_susceptible(self):
         """Creates a list of all coordinates of susceptible Nodes
@@ -346,7 +381,7 @@ class SIRModel:
         """
         ret = []
         for p in self.population:
-            if p.status is SIRStatus.SUSCEPTIBLE:
+            if p.is_susceptible():
                 ret.append((p.x, p.y))
         return np.array(ret)
     
@@ -360,7 +395,7 @@ class SIRModel:
         """
         ret = []
         for p in self.population:
-            if p.status is SIRStatus.INFECTED:
+            if p.is_contagious() or p.is_quarantined():
                 ret.append((p.x, p.y))
         return np.array(ret)
     
@@ -377,5 +412,3 @@ class SIRModel:
             if p.status is SIRStatus.RECOVERED:
                 ret.append((p.x, p.y))
         return np.array(ret)
-    
-    

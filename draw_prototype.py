@@ -36,13 +36,13 @@ class SIRViewer(MplWidget):
         if self._plot_ref is None:
             ref_s = self.plot(
                 *self.prepare(self.model.list_susceptible()), 
-                fmt='o', ms=2, c=[0.7, 0.7, 0])
+                fmt='o', ms=4, c=[0.7, 0.7, 0], mec="black")
             ref_i = self.plot(
                 *self.prepare(self.model.list_infected()), 
-                fmt='o', ms=2, c=[1, 0, 0])
+                fmt='o', ms=4, c=[1, 0, 0], mec="black")
             ref_r = self.plot(
                 *self.prepare(self.model.list_recovered()), 
-                fmt='o', ms=2, c=[0, 1, 0])
+                fmt='o', ms=4, c=[0, 1, 0], mec="black")
             self._plot_ref = [ref_s[0], ref_i[0], ref_r[0]]
         else:
             for idx, method in enumerate([
@@ -68,7 +68,7 @@ class SIRViewer(MplWidget):
             The SIRModel to be linked to
         """
         self.model = m
-        self.canvas.ax.imshow(m.sir_map.layout, cmap='Greys_r')
+        self.canvas.ax.imshow(m.sir_map.img)
         self.model_update()
         
     def force_update(self):
@@ -99,7 +99,7 @@ class SIRViewer(MplWidget):
             The Event that stops the thread
         """
         while not stop.isSet():
-            time.sleep(0.01)
+            time.sleep(0.1)
             self.force_update()
 
     def thread_start(self):
@@ -113,15 +113,22 @@ class SIRViewer(MplWidget):
         """Kills the thread and ends the program
         """
         print('='*50)
-        print('Performance Statistics')
+        print('Simulation Statistics')
+        print('-'*50)
+        print(f'Final susceptible: {len(self.model.list_susceptible())}')
+        print(f'Final infected: {len(self.model.list_infected())}')
+        print(f'Final recovered: {len(self.model.list_recovered())}')
+
         print('='*50)
+        print('Performance Statistics')
+        print('-'*50)
         print(f'Total iterations: {self.n_iter}')
         print(f'Total run time: {time.perf_counter()-self.start_time}')
         print(f'Total model step time: {self.model_time}')
         print(f'Total plotting time: {self.plot_time}')
         print(f'Total gui update time: {self.gui_time}')
 
-        print('='*50)
+        print('-'*50)
         print(f'Avg iter time: {(time.perf_counter()-self.start_time)/self.n_iter}')
         print(f'Avg model step time: {self.model_time/self.n_iter}')
         print(f'Avg plotting time: {self.plot_time/self.n_iter}')
@@ -147,7 +154,10 @@ if __name__ == '__main__':
     stop_button = QPushButton('Stop', parent = window)
     stop_button.move(500, 600)
     
-    model = SIRModel(population=1000, mapfile='mapfiles/test_large.png')
+    model = SIRModel(
+        population=200, 
+        recovery_rate=0.01,
+        mapfile='mapfiles/scenario_medium.png')
     viewer.attach_model(model)
     
     begin_button.clicked.connect(viewer.thread_start)
