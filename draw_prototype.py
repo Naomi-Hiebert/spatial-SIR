@@ -29,27 +29,30 @@ class SIRViewer(MplWidget):
         self.plot_time = 0
         self.gui_time = 0
         self.start_time = time.perf_counter()
+
+    def draw_init(self):
+        ref_s = self.plot(
+            *self.prepare(self.model.list_susceptible()), 
+            fmt='o', ms=4, c=[0.7, 0.7, 0], mec="black")
+        ref_i = self.plot(
+            *self.prepare(self.model.list_infected()), 
+            fmt='o', ms=4, c=[1, 0, 0], mec="black")
+        ref_r = self.plot(
+            *self.prepare(self.model.list_recovered()), 
+            fmt='o', ms=4, c=[0, 1, 0], mec="black")
+        self._plot_ref = [ref_s[0], ref_i[0], ref_r[0]]
+
+        self.canvas.draw()
+        self.canvas.flush_events()
         
-    def model_update(self):
+    def draw(self):
         """Updates the QPoint lists with new values of locations of Nodes
         """
-        if self._plot_ref is None:
-            ref_s = self.plot(
-                *self.prepare(self.model.list_susceptible()), 
-                fmt='o', ms=4, c=[0.7, 0.7, 0], mec="black")
-            ref_i = self.plot(
-                *self.prepare(self.model.list_infected()), 
-                fmt='o', ms=4, c=[1, 0, 0], mec="black")
-            ref_r = self.plot(
-                *self.prepare(self.model.list_recovered()), 
-                fmt='o', ms=4, c=[0, 1, 0], mec="black")
-            self._plot_ref = [ref_s[0], ref_i[0], ref_r[0]]
-        else:
-            for idx, method in enumerate([
-                self.model.list_susceptible,
-                self.model.list_infected,
-                self.model.list_recovered]):
-                self._plot_ref[idx].set_data(*self.prepare(method()))
+        for idx, method in enumerate([
+            self.model.list_susceptible,
+            self.model.list_infected,
+            self.model.list_recovered]):
+            self._plot_ref[idx].set_data(*self.prepare(method()))
 
         self.canvas.draw()
         self.canvas.flush_events()
@@ -69,7 +72,7 @@ class SIRViewer(MplWidget):
         """
         self.model = m
         self.canvas.ax.imshow(m.sir_map.img)
-        self.model_update()
+        self.draw_init()
         
     def force_update(self):
         """Steps and updates the model and viewer
@@ -80,14 +83,11 @@ class SIRViewer(MplWidget):
             self.model.model_step()
             self.model_time += time.perf_counter() - start
             start = time.perf_counter()
-            self.model_update()
+            self.draw()
             self.plot_time += time.perf_counter() - start
             start = time.perf_counter()
             self.update()
             self.gui_time += time.perf_counter() - start
-
-    def end(self):
-        sys.exit()
 
     def run_sim(self, stop):
         print(type(stop))
@@ -99,7 +99,7 @@ class SIRViewer(MplWidget):
             The Event that stops the thread
         """
         while not stop.isSet():
-            time.sleep(0.1)
+            # time.sleep(0.1)
             self.force_update()
 
     def thread_start(self):
@@ -142,7 +142,7 @@ class SIRViewer(MplWidget):
 
 if __name__ == '__main__':
     
-    app = QApplication (sys.argv)
+    app = QApplication(sys.argv)
     window = QWidget()
     window.setGeometry(50, 50, 800, 700)
     viewer = SIRViewer(parent = window)

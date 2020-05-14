@@ -1,12 +1,13 @@
+import matplotlib
+
+# Ensure using PyQt5 backend
+matplotlib.use("QT5Agg")
+
 from PyQt5 import QtWidgets
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import (
     NavigationToolbar2QT as NavigationToolbar, 
     FigureCanvasQTAgg as Canvas)
-import matplotlib
-
-# Ensure using PyQt5 backend
-matplotlib.use("QT5Agg")
 
 
 class MplCanvas(Canvas):
